@@ -97,11 +97,16 @@ def render(source, *,
     # a .content file. So, just load a barebones one with a 'pages'
     # key of zero length, so it doesn't break the rest of the
     # process.
-    pages = []
+    pages = [] # list of uuids of each page.
+    redirections = []  # page numbers. -1 means the page is an inserted note.
     if source.exists('{ID}.content'):
         with source.open('{ID}.content', 'r') as f:
-            pages = json.load(f).get('pages', [])
+            content = json.load(f)
+            pages = content.get('pages', [])
+            redirections = content.get('redirectionPageMap', [])
 
+    page_indices = redirections if redirections else range(0, len(pages))
+            
     # Render each page as a pdf
     tmpfh = tempfile.TemporaryFile()
     pdf_canvas = canvas.Canvas(tmpfh, (PDFWIDTH, PDFHEIGHT))
@@ -149,8 +154,11 @@ def render(source, *,
         OCGs=PdfArray(),
         D=PdfDict(Order=PdfArray()))
 
-    for i in range(0, len(basepdfr.pages)):
-        basepage = basepdfr.pages[i]
+    for i, j in enumerate(page_indices):  # do not include "deleted" pages
+        if j != -1:  # if it is not an inserted page, then basepage is the page from PDF
+            basepage = basepdfr.pages[j]
+        else:  # if it is an inserted note, use blank page as the base.
+            basepage = rmpdfr.pages[j]    
         rmpage = rmpdfr.pages[i]
 
         # Apply OCGs
@@ -187,16 +195,26 @@ def render(source, *,
 
     stream = tempfile.SpooledTemporaryFile(SPOOL_MAX)
     pdfw = PdfWriter(stream)
-    if not only_annotated:
-        # We are writing out everything, so we can take this shortcut:
-        pdfw.write(trailer=basepdfr)
-    else:
-        for i, page in enumerate(basepdfr.pages):
-            if i in changed_pages:
-                pdfw.addpage(page)
-        pdfw.write()
-    stream.seek(0)
+    # if not only_annotated:
+    #     # We are writing out everything, so we can take this shortcut:
+    #     pdfw.write(trailer=basepdfr)
+    # else:
+    #     for i, page in enumerate(basepdfr.pages):
+    #         if i in changed_pages:
+    #             pdfw.addpage(page)
+    #     pdfw.write()
 
+    for i, page in zip(page_indices, rmpdfr.pages):
+        # render only pages that are not "deleted" on device.
+        if (only_annotated and i in changed_pages) or not only_annotated:
+            if i != -1:
+                pdfw.addpage(basepdfr.pages[i])
+            else:
+                pdfw.addpage(page)
+    pdfw.write()
+
+    stream.seek(0)
+    
     log.info('exported pdf')
     return stream
 
