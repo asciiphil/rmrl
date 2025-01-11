@@ -236,6 +236,10 @@ class DocumentPageLayer:
             if penclass == pens.HighlighterPen:
                 color = -1
 
+            # Hack to deal with strange colors (green?) that are visible only on export; ignore them!
+            if color >= len(self.colors):
+                color = len(self.colors)-1
+                
             qpen = penclass(vector=vector,
                             layer=self,
                             color=self.colors[color])
